@@ -131,5 +131,9 @@
           program = "${self.packages.${system}.default}/bin/pi";
         };
       });
+
+      # NixOS module for declarative Pi configuration
+      nixosModules.pi = import ./nixos-module.nix { inherit self wrappers; };
+      nixosModules.default = self.nixosModules.pi;
     };
 }

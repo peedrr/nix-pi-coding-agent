@@ -1,0 +1,173 @@
+name: Update Pi Package
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-pi
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Detect current and latest versions
+        id: detect
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          current_version="$(grep -oP 'version = "\K[^"]+' pi.nix)"
+          if [[ -z "${current_version}" ]]; then
+            echo "Failed to read current version from pi.nix" >&2
+            exit 1
+          fi
+          echo "current_version=${current_version}" >> "$GITHUB_OUTPUT"
+
+          # Try GitHub Releases API first, fall back to git ls-remote
+          curl_opts=(-H "Accept: application/vnd.github+json")
+          if [[ -n "${GITHUB_TOKEN}" ]]; then
+            curl_opts+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+          fi
+
+          latest_tag="$(curl -sL "${curl_opts[@]}" \
+            "https://api.github.com/repos/earendil-works/pi/releases/latest" \
+            | jq -r '.tag_name // empty')"
+
+          if [[ -z "${latest_tag}" ]]; then
+            latest_tag="$(git ls-remote --tags --refs https://github.com/earendil-works/pi.git 'v*' \
+              | awk -F/ '{print $3}' \
+              | grep -E '^v[0-9]+(\.[0-9]+)*$' \
+              | sort -V \
+              | tail -n1)"
+          fi
+
+          if [[ -z "${latest_tag}" ]]; then
+            echo "Failed to determine latest upstream tag" >&2
+            exit 1
+          fi
+
+          latest_version="${latest_tag#v}"
+          echo "latest_version=${latest_version}" >> "$GITHUB_OUTPUT"
+
+          if [[ "${current_version}" == "${latest_version}" ]]; then
+            echo "update_required=false" >> "$GITHUB_OUTPUT"
+            echo "No update required (already ${current_version})."
+            exit 0
+          fi
+
+          newest="$(printf '%s\n%s\n' "${current_version}" "${latest_version}" | sort -V | tail -n1)"
+          if [[ "${newest}" != "${latest_version}" ]]; then
+            echo "update_required=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping non-forward version: current=${current_version}, candidate=${latest_version}"
+            exit 0
+          fi
+
+          echo "update_required=true" >> "$GITHUB_OUTPUT"
+          echo "Update required: ${current_version} -> ${latest_version}"
+
+      - name: Update version and hashes
+        if: steps.detect.outputs.update_required == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.detect.outputs.latest_version }}"
+          TAG="v${VERSION}"
+          ARCHIVE_URL="https://github.com/earendil-works/pi/archive/refs/tags/${TAG}.tar.gz"
+
+          # Prefetch source archive
+          echo "Prefetching source archive..."
+          prefetch_json="$(nix store prefetch-file --json --unpack "${ARCHIVE_URL}")"
+          src_hash="$(jq -r '.hash' <<< "${prefetch_json}")"
+          src_path="$(jq -r '.storePath' <<< "${prefetch_json}")"
+
+          if [[ ! "${src_hash}" =~ ^sha256- ]]; then
+            echo "Failed to resolve source hash" >&2
+            exit 1
+          fi
+          echo "src_hash=${src_hash}"
+
+          # Extract package-lock.json from the prefetched source
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "${tmpdir}"' EXIT
+
+          cp -R "${src_path}/." "${tmpdir}/"
+          chmod -R u+w "${tmpdir}"
+
+          lockfile="${tmpdir}/package-lock.json"
+          if [[ ! -f "${lockfile}" ]]; then
+            echo "Upstream archive does not contain package-lock.json" >&2
+            exit 1
+          fi
+
+          # Save the new vendored package-lock
+          cp "${lockfile}" "package-lock.v${VERSION}.json"
+
+          # Compute npm dependencies hash
+          echo "Computing npmDepsHash..."
+          npm_deps_hash="$(nix shell nixpkgs#prefetch-npm-deps -c prefetch-npm-deps "package-lock.v${VERSION}.json")"
+
+          if [[ ! "${npm_deps_hash}" =~ ^sha256- ]]; then
+            echo "Failed to resolve npmDepsHash" >&2
+            exit 1
+          fi
+          echo "npm_deps_hash=${npm_deps_hash}"
+
+          # Update pi.nix
+          sed -i 's/version = "[^"]*";/version = "'"${VERSION}"'";/' pi.nix
+          sed -i 's/hash = "sha256-[^"]*";/hash = "'"${src_hash}"'";/' pi.nix
+          sed -i 's/npmDepsHash = "sha256-[^"]*";/npmDepsHash = "'"${npm_deps_hash}"'";/' pi.nix
+          sed -i 's|package-lock\.v[^ ]*\.json|package-lock.v'"${VERSION}"'.json|g' pi.nix
+
+          # Remove old vendored package-lock files
+          for f in package-lock.v*.json; do
+            if [[ -f "$f" && "$f" != "package-lock.v${VERSION}.json" ]]; then
+              rm "$f"
+            fi
+          done
+
+      - name: Verify build
+        if: steps.detect.outputs.update_required == 'true'
+        run: |
+          nix build .#pi-coding-agent --no-link
+
+      - name: Commit and push changes
+        if: steps.detect.outputs.update_required == 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          version="${{ steps.detect.outputs.latest_version }}"
+
+          git add pi.nix package-lock.v*.json
+          git commit -m "chore: update pi to v${version}"
+
+          git tag "v${version}"
+
+          git push origin "HEAD:${DEFAULT_BRANCH}"
+          git push origin "refs/tags/v${version}"
