@@ -57,7 +57,7 @@
               # Point Pi to the read-only Nix store path for bundled assets
               # (themes, docs, README, package.json, export-html templates).
               # This is explicitly supported by Pi for Nix/Guix store paths.
-              PI_PACKAGE_DIR = "${config.package}/lib/node_modules/@earendil-works/pi-coding-agent";
+              PI_PACKAGE_DIR = "${config.package}/lib/node_modules/pi-monorepo";
 
               # Mutable state directory. Relative paths resolve against cwd.
               PI_CODING_AGENT_DIR = cfg.codingAgentDir;
