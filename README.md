@@ -157,25 +157,63 @@ This mirrors how Guix packages Pi and enables pure, reproducible builds while ke
 
 ## Auto-Update CI
 
-This repository includes a GitHub Actions workflow that automatically updates Pi when new versions are released upstream.
+This repository includes GitHub Actions workflows that automatically update Pi when new versions are released upstream, and create releases when the package version changes.
 
-**Schedule:** Daily at midnight UTC (`0 0 * * *`), plus manual trigger via `workflow_dispatch`.
+### Update Workflow
+
+**Schedule:** Daily at 7am UTC (`0 7 * * *`), plus manual trigger via `workflow_dispatch`.
+
+**Manual trigger options:**
+
+- **Default:** Leave version input empty to auto-detect the latest upstream release
+- **Specific version:** Enter a version (e.g., `0.75.0` or `v0.75.0`) to update to that specific release
 
 **What it does:**
 
-1. Checks [earendil-works/pi](https://github.com/earendil-works/pi) for new releases
-2. Compares current version in `pi.nix` with latest upstream tag
+1. Checks [earendil-works/pi](https://github.com/earendil-works/pi) for new releases (or uses the specified version)
+2. Compares current version in `pi.nix` with the target version
 3. Prefetches the source archive and computes the source hash
 4. Extracts `package-lock.json` and computes `npmDepsHash`
 5. Updates `pi.nix` with new version, source hash, and npm deps hash
 6. Vendors the new `package-lock.json` as `package-lock.v{VERSION}.json`
 7. Removes old vendored package-lock files
-8. Verifies the build with `nix build .#pi-coding-agent`
-9. Commits changes as `github-actions[bot]`
-10. Creates a git tag for the new version
-11. Pushes to the default branch
+8. Runs `nix flake update` to refresh flake inputs
+9. Verifies the build with `nix build .#pi-coding-agent` and `nix build .#default`
+10. Creates a pull request with the changes
+11. Enables auto-merge (squash merge) on the PR
 
 **Why vendoring?** Pi's `package-lock.json` is not included in the release tarball. We vendor it to ensure reproducible builds.
+
+**Required secrets:**
+
+| Secret | Purpose |
+|--------|---------|
+| `PI_UPDATER_TOKEN` | Personal Access Token with `repo` and `workflow` scopes for PR creation and auto-merge |
+
+**When auto-merge fails:**
+
+If the PR cannot auto-merge (e.g., branch protection rules require manual review):
+
+1. Navigate to the PR in the GitHub UI
+2. Review the changes (updated `pi.nix`, new `package-lock.v{VERSION}.json`, updated `flake.lock`)
+3. Click "Merge pull request" and select "Squash and merge"
+4. The release workflow will trigger automatically once merged
+
+### Release Workflow
+
+A separate workflow automatically creates GitHub releases when Pi version changes land on `main`.
+
+**Trigger:** Push to `main` that modifies `pi.nix`.
+
+**What it does:**
+
+1. Detects version changes by comparing `pi.nix` at HEAD vs the previous commit
+2. Skips silently if the version has not changed
+3. Creates a git tag `v${VERSION}` (e.g., `v0.74.0`)
+4. Creates a GitHub release with title `Pi v${VERSION}`
+5. Auto-generates release notes from commit history
+
+**Permissions:** Uses the default `GITHUB_TOKEN` with `contents: write` permission. No additional secrets required.
 
 ## Build Details
 
