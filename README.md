@@ -1,36 +1,43 @@
-# pi-on-nix
+# nix-pi-coding-agent
 
-A Nix flake for the [Pi](https://pi.dev) terminal coding agent, featuring configurable global and per-project setups via [nix-wrapper-modules](https://github.com/BirdeeHub/nix-wrapper-modules).
+Pi wrapped for Nix with [nix-wrapper-modules](https://github.com/BirdeeHub/nix-wrapper-modules).
 
-## What This Flake Provides
+## What you get
 
-Pi is a minimal terminal coding harness. This flake packages it for Nix with flexible configuration options.
+A Nix flake that wraps the [Pi](https://pi.dev) coding agent with full configurability:
 
-| Output | Description |
-|--------|-------------|
-| `packages.<system>.pi-coding-agent` | The raw, unwrapped Pi package |
-| `packages.<system>.default` | Pi with global config (`PI_CODING_AGENT_DIR = ~/.pi/agent`) |
-| `wrappers.piModule` | Reusable nix-wrapper-modules module for custom wrapping |
-| `nixosModules.pi` / `nixosModules.default` | NixOS module for declarative system-wide configuration |
-| `apps.<system>.default` | `nix run` support for quick testing |
+- **`nix run github:peedrr/nix-pi-coding-agent`** — try it without installing
+- **`packages.<system>.default`** — Pi with global config at `~/.pi/agent`
+- **`packages.<system>.pi`** — the unwrapped package for custom wrapping
+- **`wrappers.piModule`** — reusable module supporting `.wrap`, `.apply`, `.eval`
+- **`nixosModules.pi`** — NixOS module for declarative system-wide config
 
-## Quick Start
+## Why it works well
 
-Test Pi without installing:
+The wrapper separates immutable Nix store assets from mutable user state:
+
+| Variable | What it points to | Managed by |
+|----------|-------------------|------------|
+| `PI_PACKAGE_DIR` | Read-only themes, docs, templates in the Nix store | Nix |
+| `PI_CODING_AGENT_DIR` | Your settings, auth, sessions, extensions | You |
+
+This means reproducible builds without sacrificing user control. Pi gets the correct bundled assets from the exact version it was tested with, while your config lives wherever you want — `~/.pi/agent` globally or `./.pi` per-project.
+
+The wrapper uses nix-wrapper-modules' binary backend for fast startup (~4ms overhead) and provides every configuration option Pi supports as Nix options.
+
+## How to use it
+
+### Quick test
 
 ```bash
-nix run github:yourusername/pi-on-nix
+nix run github:peedrr/nix-pi-coding-agent
 ```
 
-## Usage Patterns
-
-### Global Configuration (Default)
-
-The default package uses `~/.pi/agent` for mutable state (settings, auth, sessions, extensions):
+### In your flake
 
 ```nix
 {
-  inputs.pi.url = "github:yourusername/pi-on-nix";
+  inputs.pi.url = "github:peedrr/nix-pi-coding-agent";
 
   outputs = { self, nixpkgs, pi }: {
     packages.x86_64-linux.default = pi.packages.x86_64-linux.default;
@@ -38,200 +45,66 @@ The default package uses `~/.pi/agent` for mutable state (settings, auth, sessio
 }
 ```
 
-Install via `nix profile install` or add to your Home Manager packages.
-
-### Per-Project Configuration
-
-For isolated, project-specific Pi state:
+### Per-project config
 
 ```nix
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    pi.url = "github:yourusername/pi-on-nix";
-    wrappers.url = "github:BirdeeHub/nix-wrapper-modules";
+    pi.url = "github:peedrr/nix-pi-coding-agent";
   };
 
-  outputs = { self, nixpkgs, pi, wrappers }:
-    let
-      pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      piPkg = pi.packages.x86_64-linux.pi-coding-agent;
+  outputs = { self, nixpkgs, pi }:
+    let pkgs = nixpkgs.legacyPackages.x86_64-linux;
     in {
-      packages.x86_64-linux.my-pi = (wrappers.lib.evalModules {
-        modules = [
-          ({ pkgs, wlib, ... }: {
-            inherit pkgs;
-            imports = [ wlib.modules.default pi.wrappers.piModule ];
-            package = piPkg;
-            pi.codingAgentDir = "./.pi";
-            pi.extraPackages = [ pkgs.terraform pkgs.jq pkgs.awscli2 ];
-          })
-        ];
-        specialArgs = { inherit pkgs; };
-      }).config.wrapper;
+      packages.x86_64-linux.my-pi = pi.wrappers.piModule.wrap {
+        inherit pkgs;
+        package = pi.packages.x86_64-linux.pi;
+        pi.codingAgentDir = "./.pi";
+        pi.extraPackages = [ pkgs.terraform pkgs.awscli2 ];
+      };
     };
 }
 ```
 
-Then in your project:
-
-```bash
-nix run .#my-pi
-```
-
-This keeps all Pi state (settings, auth, extensions) isolated to `./.pi` within your project.
-
-### NixOS Module
-
-For system-wide declarative configuration:
+### NixOS module
 
 ```nix
-{ inputs, ... }: {
-  imports = [ inputs.pi.nixosModules.default ];
+{ inputs, pkgs, ... }: {
+  imports = [ inputs.pi.nixosModules.pi ];
 
-  programs.pi.coding-agent = {
+  wrappers.pi = {
     enable = true;
+    package = inputs.pi.packages.x86_64-linux.pi;
     codingAgentDir = "~/.pi/agent";
-    extraPackages = [ pkgs.terraform pkgs.jq ];
-    
-    # Optional: declarative skills, themes, extensions
-    skills = [ /path/to/skills ];
-    themes = [ /path/to/themes ];
-    extensions = [ /path/to/extensions ];
-    promptTemplates = [ /path/to/prompts ];
-    models = /path/to/models.json;
-    
-    # Optional: extra CLI flags
+    extraPackages = [ pkgs.terraform ];
     extraFlags = [ "--verbose" ];
   };
 }
 ```
 
-## Adding Extra Packages to PATH
-
-Pi extensions and skills may need external tools. Use `extraPackages`:
-
-```nix
-pi.extraPackages = [
-  pkgs.terraform
-  pkgs.awscli2
-  pkgs.jq
-  pkgs.pandoc
-  pkgs.ripgrep  # already included by default
-  pkgs.fd       # already included by default
-];
-```
-
-Default packages always available: `git`, `ripgrep`, `fd`, `nodejs`.
-
-## Architecture: PI_PACKAGE_DIR + PI_CODING_AGENT_DIR
-
-This flake uses a two-directory pattern explicitly supported by Pi:
-
-| Variable | Purpose | Mutability |
-|----------|---------|------------|
-| `PI_PACKAGE_DIR` | Read-only Nix store path containing themes, docs, package.json, export-html templates | Immutable (Nix store) |
-| `PI_CODING_AGENT_DIR` | Mutable state directory for settings, auth, sessions, extensions, skills | Mutable (user/project controlled) |
-
-**Why this pattern?**
-
-- **PI_PACKAGE_DIR** points to bundled assets that ship with Pi. These belong in the Nix store, version-locked and immutable.
-- **PI_CODING_AGENT_DIR** is where Pi writes runtime state. Separating this allows flexibility: use `~/.pi/agent` for global state or `./.pi` for project isolation.
-
-This mirrors how Guix packages Pi and enables pure, reproducible builds while keeping user data separate.
-
-## NixOS Module Options
+### Available options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enable` | boolean | `false` | Enable Pi system-wide |
-| `package` | package | `pi-coding-agent` | Pi package to wrap |
 | `codingAgentDir` | string | `"~/.pi/agent"` | Mutable state directory |
-| `extraPackages` | list | `[]` | Extra packages on PATH |
-| `skills` | list of paths | `[]` | Skills directories (sets `PI_SKILLS_PATHS`) |
-| `extensions` | list of paths | `[]` | Extensions directories (sets `PI_EXTENSIONS_PATHS`) |
-| `themes` | list of paths | `[]` | Themes directories (sets `PI_THEMES_PATHS`) |
-| `promptTemplates` | list of paths | `[]` | Prompt template directories (sets `PI_PROMPT_TEMPLATES_PATHS`) |
-| `models` | null or path | `null` | Custom models.json (sets `PI_MODELS_PATH`) |
-| `extraFlags` | list of strings | `[]` | Extra CLI arguments |
+| `sessionDir` | null or string | `null` | Override session directory |
+| `extraPackages` | list of packages | `[]` | Extra tools on PATH |
+| `offline` | bool | `false` | Disable network at startup |
+| `skipVersionCheck` | bool | `false` | Skip update checks |
+| `skills` | list of paths | `[]` | Skills directories |
+| `extensions` | list of paths | `[]` | Extension directories |
+| `themes` | list of paths | `[]` | Theme directories |
+| `promptTemplates` | list of paths | `[]` | Prompt template directories |
+| `models` | null or path | `null` | Custom models.json |
+| `extraFlags` | list of strings | `[]` | CLI args. `--flag` for booleans, `--flag=val` for values |
 
-## Auto-Update CI
+Default tools on PATH: `git`, `ripgrep` (`rg`), `fd`, `tar`, `unzip`.
 
-This repository includes GitHub Actions workflows that automatically update Pi when new versions are released upstream, and create releases when the package version changes.
+## Supported platforms
 
-### Update Workflow
-
-**Schedule:** Daily at 7am UTC (`0 7 * * *`), plus manual trigger via `workflow_dispatch`.
-
-**Manual trigger options:**
-
-- **Default:** Leave version input empty to auto-detect the latest upstream release
-- **Specific version:** Enter a version (e.g., `0.75.0` or `v0.75.0`) to update to that specific release
-
-**What it does:**
-
-1. Checks [earendil-works/pi](https://github.com/earendil-works/pi) for new releases (or uses the specified version)
-2. Compares current version in `pi.nix` with the target version
-3. Prefetches the source archive and computes the source hash
-4. Extracts `package-lock.json` and computes `npmDepsHash`
-5. Updates `pi.nix` with new version, source hash, and npm deps hash
-6. Vendors the new `package-lock.json` as `package-lock.v{VERSION}.json`
-7. Removes old vendored package-lock files
-8. Runs `nix flake update` to refresh flake inputs
-9. Verifies the build with `nix build .#pi-coding-agent` and `nix build .#default`
-10. Creates a pull request with the changes
-11. Enables auto-merge (squash merge) on the PR
-
-**Why vendoring?** Pi's `package-lock.json` is not included in the release tarball. We vendor it to ensure reproducible builds.
-
-**Required secrets:**
-
-| Secret | Purpose |
-|--------|---------|
-| `PI_UPDATER_TOKEN` | Personal Access Token with `repo` and `workflow` scopes for PR creation and auto-merge |
-
-**When auto-merge fails:**
-
-If the PR cannot auto-merge (e.g., branch protection rules require manual review):
-
-1. Navigate to the PR in the GitHub UI
-2. Review the changes (updated `pi.nix`, new `package-lock.v{VERSION}.json`, updated `flake.lock`)
-3. Click "Merge pull request" and select "Squash and merge"
-4. The release workflow will trigger automatically once merged
-
-### Release Workflow
-
-A separate workflow automatically creates GitHub releases when Pi version changes land on `main`.
-
-**Trigger:** Push to `main` that modifies `pi.nix`.
-
-**What it does:**
-
-1. Detects version changes by comparing `pi.nix` at HEAD vs the previous commit
-2. Skips silently if the version has not changed
-3. Creates a git tag `v${VERSION}` (e.g., `v0.74.0`)
-4. Creates a GitHub release with title `Pi v${VERSION}`
-5. Auto-generates release notes from commit history
-
-**Permissions:** Uses the default `GITHUB_TOKEN` with `contents: write` permission. No additional secrets required.
-
-## Build Details
-
-Pi is built from source using Nix's standard `buildNpmPackage`:
-
-- **Build approach:** `nixpkgs`-proven `buildNpmPackage` with npm workspace support
-- **Workspace:** `packages/coding-agent`
-- **Skip:** `generate-models` step (requires network, but models are pre-generated in repo)
-- **Build order:** `ai` → `tui` → `agent` → `coding-agent`
-- **Post-install:** Replaces workspace symlinks with real copies for runtime
-
-## Supported Platforms
-
-- `x86_64-linux`
-- `aarch64-linux`
-- `x86_64-darwin`
-- `aarch64-darwin`
+`x86_64-linux`, `aarch64-linux`, `x86_64-darwin`, `aarch64-darwin`
 
 ## License
 
-MIT (same as upstream Pi)
+MIT

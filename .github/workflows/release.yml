@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - pi.nix
+      - packages/pi/package.nix
 
 permissions:
   contents: write
@@ -31,17 +31,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          current_version="$(grep -oP 'version = "\K[^"]+' pi.nix)"
+          current_version="$(grep -oP 'version = "\K[^"]+' packages/pi/package.nix)"
 
           before_sha="${{ github.event.before }}"
           previous_version=""
 
           if [[ -n "${before_sha}" ]] && git cat-file -e "${before_sha}^{commit}" 2>/dev/null; then
-            previous_version="$(git show "${before_sha}:pi.nix" | grep -oP 'version = "\K[^"]+' || true)"
+            previous_version="$(git show "${before_sha}:packages/pi/package.nix" | grep -oP 'version = "\K[^"]+' || true)"
           fi
 
           if [[ -z "${current_version}" ]]; then
-            echo "Failed to read version from pi.nix" >&2
+            echo "Failed to read version from packages/pi/package.nix" >&2
             exit 1
           fi
 
@@ -100,7 +100,7 @@ jobs:
             const tag = `v${version}`;
 
             const body = [
-              'Automated release generated after a `pi.nix` version bump on `main`.',
+              'Automated release generated after a `packages/pi/package.nix` version bump on `main`.',
               '',
               previous
                 ? `- Previous packaged version: \`v${previous}\``

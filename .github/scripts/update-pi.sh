@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# update-pi.sh — Check for new upstream Pi releases and update pi.nix
+# update-pi.sh — Check for new upstream Pi releases and update packages/pi/package.nix
 #
 # Usage: ./.github/scripts/update-pi.sh
 #
 # This script can be run both in CI and locally. It:
-#   1. Reads the current version from pi.nix
+#   1. Reads the current version from packages/pi/package.nix
 #   2. Queries the latest release tag from earendil-works/pi
 #   3. Skips if no newer version is available
 #   4. Prefetches the source archive and computes the source hash
 #   5. Extracts package-lock.json from the prefetched source
 #   6. Computes npmDepsHash via prefetch-npm-deps
-#   7. Updates pi.nix with the new version, hash, and npmDepsHash
+#   7. Updates packages/pi/package.nix with the new version, hash, and npmDepsHash
 #   8. Vendors the new package-lock.json and cleans up old ones
 #   9. Exports metadata for GitHub Actions workflow consumption
 
@@ -22,7 +22,8 @@ set -euo pipefail
 
 UPSTREAM_OWNER="earendil-works"
 UPSTREAM_REPO="pi"
-PI_NIX="pi.nix"
+PI_NIX="packages/pi/package.nix"
+LOCKFILE_DIR="packages/pi"
 
 # ---------------------------------------------------------------------------
 # Step 1: Detect current version from pi.nix
@@ -110,18 +111,18 @@ if [[ ! -f "${lockfile}" ]]; then
   exit 1
 fi
 
-cp "${lockfile}" "package-lock.v${VERSION}.json"
-echo "Vendored package-lock.json as package-lock.v${VERSION}.json"
+cp "${lockfile}" "${LOCKFILE_DIR}/package-lock.v${VERSION}.json"
+echo "Vendored package-lock.json as ${LOCKFILE_DIR}/package-lock.v${VERSION}.json"
 
 # ---------------------------------------------------------------------------
 # Step 6: Compute npmDepsHash
 # ---------------------------------------------------------------------------
 
-npm_deps_hash="$(nix shell nixpkgs#prefetch-npm-deps -c prefetch-npm-deps "package-lock.v${VERSION}.json")"
+npm_deps_hash="$(nix shell nixpkgs#prefetch-npm-deps -c prefetch-npm-deps "${LOCKFILE_DIR}/package-lock.v${VERSION}.json")"
 echo "npmDepsHash: ${npm_deps_hash}"
 
 # ---------------------------------------------------------------------------
-# Step 7: Update pi.nix
+# Step 7: Update packages/pi/package.nix
 # ---------------------------------------------------------------------------
 
 sed -i 's/version = "[^"]*";/version = "'"${VERSION}"'";/' "${PI_NIX}"
@@ -135,8 +136,8 @@ echo "Updated ${PI_NIX}"
 # Step 8: Clean up old vendored lockfiles
 # ---------------------------------------------------------------------------
 
-for f in package-lock.v*.json; do
-  if [[ -f "$f" && "$f" != "package-lock.v${VERSION}.json" ]]; then
+for f in "${LOCKFILE_DIR}"/package-lock.v*.json; do
+  if [[ -f "$f" && "$f" != "${LOCKFILE_DIR}/package-lock.v${VERSION}.json" ]]; then
     echo "Removing old vendored lockfile: $f"
     rm "$f"
   fi

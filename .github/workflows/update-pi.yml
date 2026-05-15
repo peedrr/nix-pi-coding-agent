@@ -76,7 +76,7 @@ jobs:
         if: steps.changes.outputs.any_changes == 'true'
         run: |
           set -euo pipefail
-          nix build .#pi-coding-agent --no-link
+          nix build .#pi --no-link
           nix build .#default --no-link
 
       - name: Prepare PR metadata
@@ -98,7 +98,7 @@ jobs:
 
           if [[ "${UPDATE_REQUIRED:-false}" == "true" ]]; then
             body+="**Pi update:** v${NEW_VERSION}"$'\n'
-            body+="- Updated \`pi.nix\` (version, src hash, npmDepsHash)"$'\n'
+            body+="- Updated \`packages/pi/package.nix\` (version, src hash, npmDepsHash)"$'\n'
             body+="- Vendored \`package-lock.v${NEW_VERSION}.json\`"$'\n'
           fi
 
