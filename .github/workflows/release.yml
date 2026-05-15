@@ -65,7 +65,7 @@ jobs:
       - name: Check for existing release
         if: steps.detect.outputs.release_required == 'true'
         id: existing
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const tag = `v${{ steps.detect.outputs.current_version }}`;
@@ -92,7 +92,7 @@ jobs:
       - name: Create GitHub release
         id: create
         if: steps.detect.outputs.release_required == 'true' && steps.existing.outputs.exists == 'false'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const version = '${{ steps.detect.outputs.current_version }}';
