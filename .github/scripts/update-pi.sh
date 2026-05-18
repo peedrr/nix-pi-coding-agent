@@ -127,7 +127,7 @@ echo "npmDepsHash: ${npm_deps_hash}"
 
 sed -i 's/version = "[^"]*";/version = "'"${VERSION}"'";/' "${PI_NIX}"
 sed -i 's/hash = "sha256-[^"]*";/hash = "'"${src_hash}"'";/' "${PI_NIX}"
-sed -i 's/npmDepsHash = "sha256-[^"]*";/npmDepsHash = "'"${npm_deps_hash}"'";/' "${PI_NIX}"
+sed -i 's|npmDepsHash = "sha256-[^"]*";|npmDepsHash = "sha256-'"${npm_deps_hash}"'";|' "${PI_NIX}"
 sed -i 's|package-lock\.v[^ ]*\.json|package-lock.v'"${VERSION}"'.json|g' "${PI_NIX}"
 
 echo "Updated ${PI_NIX}"
