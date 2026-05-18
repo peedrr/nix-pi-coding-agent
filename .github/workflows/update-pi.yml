@@ -49,11 +49,6 @@ jobs:
           set -euo pipefail
           nix flake update
 
-      - name: Stage new vendored lockfile for Nix path resolution
-        run: |
-          set -euo pipefail
-          git add packages/pi/package-lock.v*.json 2>/dev/null || true
-
       - name: Check for changes
         id: changes
         run: |

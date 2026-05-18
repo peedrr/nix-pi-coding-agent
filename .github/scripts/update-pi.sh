@@ -9,7 +9,7 @@
 #   3. Skips if no newer version is available
 #   4. Prefetches the source archive and computes the source hash
 #   5. Extracts package-lock.json from the prefetched source
-#   6. Computes npmDepsHash via prefetch-npm-deps
+#   6. Computes npmDepsHash via fake-hash build prefetch
 #   7. Updates packages/pi/package.nix with the new version, hash, and npmDepsHash
 #   8. Vendors the new package-lock.json and cleans up old ones
 #   9. Exports metadata for GitHub Actions workflow consumption
@@ -115,10 +115,26 @@ cp "${lockfile}" "${LOCKFILE_DIR}/package-lock.v${VERSION}.json"
 echo "Vendored package-lock.json as ${LOCKFILE_DIR}/package-lock.v${VERSION}.json"
 
 # ---------------------------------------------------------------------------
-# Step 6: Compute npmDepsHash
+# Step 6: Compute npmDepsHash via build-time hash prefetch
 # ---------------------------------------------------------------------------
+# prefetch-npm-deps does not account for npmWorkspace, npmRebuildFlags,
+# or other buildNpmPackage options that affect the deps hash. Instead,
+# set a fake hash, attempt a build, and extract the correct hash from
+# the error output.
 
-npm_deps_hash="$(nix shell nixpkgs#prefetch-npm-deps -c prefetch-npm-deps "${LOCKFILE_DIR}/package-lock.v${VERSION}.json")"
+FAKE_HASH="sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+sed -i 's@npmDepsHash = "sha256-[^"]*";@npmDepsHash = "'"${FAKE_HASH}"'";@' "${PI_NIX}"
+git add "${LOCKFILE_DIR}/package-lock.v${VERSION}.json" "${PI_NIX}"
+
+npm_deps_hash="$(nix build .#pi --no-link 2>&1 \
+  | grep -oP 'got:\s+\Ksha256-[A-Za-z0-9+/=]+' \
+  | head -n1)" || true
+
+if [[ -z "${npm_deps_hash}" ]]; then
+  echo "ERROR: Could not determine npmDepsHash from build output." >&2
+  exit 1
+fi
+
 echo "npmDepsHash: ${npm_deps_hash}"
 
 # ---------------------------------------------------------------------------
