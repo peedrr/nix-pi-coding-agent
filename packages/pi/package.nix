@@ -36,7 +36,7 @@ buildNpmPackage (finalAttrs: {
   # (models.generated.ts is committed to the repo).
   preBuild = ''
     substituteInPlace packages/ai/package.json \
-      --replace-fail '"build": "npm run generate-models && tsgo -p tsconfig.build.json"' \
+      --replace-fail '"build": "npm run generate-models && npm run generate-image-models && tsgo -p tsconfig.build.json"' \
                      '"build": "tsgo -p tsconfig.build.json"'
   '';
 
