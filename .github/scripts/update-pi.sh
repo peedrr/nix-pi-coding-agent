@@ -9,8 +9,8 @@
 #   3. Skips if no newer version is available
 #   4. Prefetches the source archive and computes the source hash
 #   5. Extracts package-lock.json from the prefetched source
-#   6. Computes npmDepsHash via fake-hash build prefetch
-#   7. Updates packages/pi/package.nix with the new version, hash, and npmDepsHash
+#   6. Updates version, src hash, lockfile ref in package.nix
+#   7. Computes npmDepsHash via fake-hash build prefetch
 #   8. Vendors the new package-lock.json and cleans up old ones
 #   9. Exports metadata for GitHub Actions workflow consumption
 
@@ -115,7 +115,16 @@ cp "${lockfile}" "${LOCKFILE_DIR}/package-lock.v${VERSION}.json"
 echo "Vendored package-lock.json as ${LOCKFILE_DIR}/package-lock.v${VERSION}.json"
 
 # ---------------------------------------------------------------------------
-# Step 6: Compute npmDepsHash via build-time hash prefetch
+# Step 6: Update version, src hash, and lockfile ref in package.nix
+# ---------------------------------------------------------------------------
+
+sed -i 's/version = "[^"]*";/version = "'"${VERSION}"'";/' "${PI_NIX}"
+sed -i 's@hash = "sha256-[^"]*";@hash = "'"${src_hash}"'";@' "${PI_NIX}"
+sed -i 's@package-lock\.v[^ ]*\.json@package-lock.v'"${VERSION}"'.json@g' "${PI_NIX}"
+git add "${LOCKFILE_DIR}/package-lock.v${VERSION}.json" "${PI_NIX}"
+
+# ---------------------------------------------------------------------------
+# Step 7: Compute npmDepsHash via fake-hash build prefetch
 # ---------------------------------------------------------------------------
 # prefetch-npm-deps does not account for npmWorkspace, npmRebuildFlags,
 # or other buildNpmPackage options that affect the deps hash. Instead,
@@ -124,7 +133,6 @@ echo "Vendored package-lock.json as ${LOCKFILE_DIR}/package-lock.v${VERSION}.jso
 
 FAKE_HASH="sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 sed -i 's@npmDepsHash = "sha256-[^"]*";@npmDepsHash = "'"${FAKE_HASH}"'";@' "${PI_NIX}"
-git add "${LOCKFILE_DIR}/package-lock.v${VERSION}.json" "${PI_NIX}"
 
 npm_deps_hash="$(nix build .#pi --no-link 2>&1 \
   | grep -oP 'got:\s+\Ksha256-[A-Za-z0-9+/=]+' \
@@ -136,15 +144,7 @@ if [[ -z "${npm_deps_hash}" ]]; then
 fi
 
 echo "npmDepsHash: ${npm_deps_hash}"
-
-# ---------------------------------------------------------------------------
-# Step 7: Update packages/pi/package.nix
-# ---------------------------------------------------------------------------
-
-sed -i 's/version = "[^"]*";/version = "'"${VERSION}"'";/' "${PI_NIX}"
-sed -i 's@hash = "sha256-[^"]*";@hash = "'"${src_hash}"'";@' "${PI_NIX}"
 sed -i 's@npmDepsHash = "sha256-[^"]*";@npmDepsHash = "'"${npm_deps_hash}"'";@' "${PI_NIX}"
-sed -i 's@package-lock\.v[^ ]*\.json@package-lock.v'"${VERSION}"'.json@g' "${PI_NIX}"
 
 echo "Updated ${PI_NIX}"
 
