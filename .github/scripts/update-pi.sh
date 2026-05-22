@@ -5,7 +5,7 @@
 #
 # This script can be run both in CI and locally. It:
 #   1. Reads the current version from packages/pi/package.nix
-#   2. Queries the latest release tag from earendil-works/pi
+#   2. Queries the highest semver tag from earendil-works/pi via git ls-remote
 #   3. Skips if no newer version is available
 #   4. Prefetches the source archive and computes the source hash
 #   5. Extracts package-lock.json from the prefetched source
@@ -40,24 +40,17 @@ if [[ -n "${VERSION_OVERRIDE:-}" ]]; then
   latest_version="${VERSION_OVERRIDE#v}"
   echo "Using overridden version: ${latest_version}"
 else
-  # Try GitHub Releases API first, optionally authenticated.
-  # GITHUB_TOKEN is injected by GitHub Actions; locally it can be unset.
-  api_url="https://api.github.com/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/releases/latest"
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    latest_tag="$(curl -sL -H "Authorization: Bearer ${GITHUB_TOKEN}" "${api_url}" | jq -r '.tag_name // empty')"
-  else
-    latest_tag="$(curl -sL "${api_url}" | jq -r '.tag_name // empty')"
-  fi
-
-  # Fall back to git ls-remote if the API returns nothing.
-  if [[ -z "${latest_tag}" ]]; then
-    echo "GitHub API returned no tag, falling back to git ls-remote..."
-    latest_tag="$(git ls-remote --tags --refs "https://github.com/${UPSTREAM_OWNER}/${UPSTREAM_REPO}.git" 'v*' \
-      | awk -F/ '{print $3}' \
-      | grep -E '^v[0-9]+(\.[0-9]+)*$' \
-      | sort -V \
-      | tail -n1)"
-  fi
+  # Query the highest semver tag from upstream via git ls-remote.
+  # We intentionally avoid GitHub's /releases/latest API because it
+  # returns the most recently *published* release (by creation date,
+  # not semver), which can be a backport hotfix on an older release
+  # branch — e.g. v0.74.2 published after v0.75.4.
+  echo "Querying upstream tags for highest version..."
+  latest_tag="$(git ls-remote --tags --refs "https://github.com/${UPSTREAM_OWNER}/${UPSTREAM_REPO}.git" 'v*' \
+    | awk -F/ '{print $3}' \
+    | grep -E '^v[0-9]+(\.[0-9]+)*$' \
+    | sort -V \
+    | tail -n1)"
 
   if [[ -z "${latest_tag}" ]]; then
     echo "ERROR: Could not determine latest upstream version." >&2
