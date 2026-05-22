@@ -166,7 +166,7 @@ in
       ) cfg.extraFlags
     );
 
-    extraPackages = [
+    runtimePkgs = [
       pkgs.git
       pkgs.ripgrep
       pkgs.fd
