@@ -127,10 +127,9 @@ jobs:
           title: ${{ steps.pr-meta.outputs.title }}
           body: ${{ steps.pr-meta.outputs.body }}
 
-      - name: Enable auto-merge
+      - name: Merge pull request
         if: steps.cpr.outputs.pull-request-number != ''
-        uses: peter-evans/enable-pull-request-automerge@v3
-        with:
-          token: ${{ secrets.PI_UPDATER_TOKEN }}
-          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
-          merge-method: squash
+        env:
+          GH_TOKEN: ${{ secrets.PI_UPDATER_TOKEN }}
+        run: |
+          gh pr merge "${{ steps.cpr.outputs.pull-request-number }}" --squash
