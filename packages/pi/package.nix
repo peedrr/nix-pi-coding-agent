@@ -7,16 +7,16 @@
 
 buildNpmPackage (finalAttrs: {
   pname = "pi-coding-agent";
-  version = "0.79.0";
+  version = "0.79.1";
 
   src = fetchFromGitHub {
     owner = "earendil-works";
     repo = "pi";
     tag = "v${finalAttrs.version}";
-    hash = "sha256-mOgqwUdL6leyroHKfYHOEuEX+27pIZiaEvcGxlIj8NI=";
+    hash = "sha256-MvH8e21GVfzRQ9vsxFNC1GHJfB9GZpqY1Z2t8GCUaiQ=";
   };
 
-  npmDepsHash = "sha256-8Axh/EfrzQmR8ECezxI5t4NVwM+I00V5f4c02TMr/ZM=";
+  npmDepsHash = "sha256-5/id9qRXGEH2Y9CKLtPwu4XBizErONoUe7vfIytYdFY=";
   npmDepsFetcherVersion = 2;
 
   npmWorkspace = "packages/coding-agent";
@@ -25,7 +25,7 @@ buildNpmPackage (finalAttrs: {
   npmRebuildFlags = [ "--ignore-scripts" ];
 
   postPatch = ''
-    cp ${./package-lock.v0.79.0.json} package-lock.json
+    cp ${./package-lock.v0.79.1.json} package-lock.json
   '';
 
   nativeBuildInputs = [
