@@ -1,22 +1,23 @@
 { lib
 , buildNpmPackage
 , fetchFromGitHub
+, fetchurl
 , nodejs
 , typescript-go
 }:
 
 buildNpmPackage (finalAttrs: {
   pname = "pi-coding-agent";
-  version = "0.80.10";
+  version = "0.81.0";
 
   src = fetchFromGitHub {
     owner = "earendil-works";
     repo = "pi";
     tag = "v${finalAttrs.version}";
-    hash = "sha256-Vs/ndHYzFyfN4CjPV2zMYblLXe9IuM13UrPJI1VsZEQ=";
+    hash = "sha256-/TIYea6baa0vlz2G5wUv1aOknjEdo8zoo7eZI0Afjmk=";
   };
 
-  npmDepsHash = "sha256-Ro2ovgqH6EpFb20M5DvcP6KIxXZPHcjeEdo1Sh4JbDM=";
+  npmDepsHash = "sha256-Iloo/bmEvkNNOhlhUxXDVMz9L+HG1NAm5K+K6eFuyrc=";
   npmDepsFetcherVersion = 2;
 
   npmWorkspace = "packages/coding-agent";
@@ -25,28 +26,44 @@ buildNpmPackage (finalAttrs: {
   npmRebuildFlags = [ "--ignore-scripts" ];
 
   postPatch = ''
-    cp ${./package-lock.v0.80.10.json} package-lock.json
+    cp ${./package-lock.v0.81.0.json} package-lock.json
   '';
 
   nativeBuildInputs = [
     typescript-go
   ];
 
-  # Skip generate-models since it requires network access
-  # (models.generated.ts is committed to the repo).
+  # pi-ai's model data lives in gitignored JSON files under
+  # src/providers/data/ (generated upstream by `generate-models`, which
+  # requires network). Source the prebuilt data from the published
+  # @earendil-works/pi-ai npm tarball instead. The JSON must exist in
+  # src/providers/data/ at compile time (tsgo with moduleResolution
+  # NodeNext resolves the `import ... from "./data/<provider>.json"` for
+  # real) and in dist/providers/data/ at runtime.
+  piAiData = fetchurl {
+    url = "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-${finalAttrs.version}.tgz";
+    hash = "sha256-YuCrwc/6xDHQkcvI6I7u/LTEKLx40nAuxSvPXe/h/1o=";
+  };
+
   preBuild = ''
-    substituteInPlace packages/ai/package.json \
-      --replace-fail '"build": "npm run generate-models && npm run generate-image-models && tsgo -p tsconfig.build.json"' \
-                     '"build": "tsgo -p tsconfig.build.json"'
+    # Seed pi-ai's gitignored model-data JSON from the npm tarball so tsgo
+    # can resolve the `./data/<provider>.json` imports at compile time.
+    mkdir -p packages/ai/src/providers/data
+    tar -xf ${finalAttrs.piAiData} -C packages/ai/src/providers/data \
+      --strip-components=4 package/dist/providers/data
   '';
 
   # Build workspace dependencies in order, then the coding-agent.
   # We invoke tsgo directly for workspace deps to skip pi-ai's
-  # generate-models script which requires network access.
+  # generate-models script which requires network access, then copy the
+  # seeded model data into dist (mirroring upstream's build:offline).
   buildPhase = ''
     runHook preBuild
 
     tsgo -p packages/ai/tsconfig.build.json
+    mkdir -p packages/ai/dist/providers/data
+    cp -r packages/ai/src/providers/data/. packages/ai/dist/providers/data/
+
     tsgo -p packages/tui/tsconfig.build.json --target esnext
     tsgo -p packages/agent/tsconfig.build.json
     npm run build --workspace=packages/coding-agent
@@ -60,7 +77,9 @@ buildNpmPackage (finalAttrs: {
   postInstall = ''
     local nm="$out/lib/node_modules/pi-monorepo/node_modules"
 
-    # Replace workspace deps needed at runtime with real copies
+    # Replace workspace deps needed at runtime with real copies.
+    # pi-ai's dist/providers/data (model JSON seeded from the npm tarball)
+    # travels along with the packages/ai copy.
     for ws in @earendil-works/pi-ai:packages/ai \
               @earendil-works/pi-tui:packages/tui \
               @earendil-works/pi-agent-core:packages/agent; do
