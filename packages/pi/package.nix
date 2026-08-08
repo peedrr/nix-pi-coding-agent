@@ -60,6 +60,20 @@ buildNpmPackage (finalAttrs: {
   buildPhase = ''
     runHook preBuild
 
+    # telemetry (added upstream in v0.84.0) must be built before
+    # packages/ai and packages/agent, which import it. protocol and
+    # client are also new in v0.84.0 (coding-agent depends on both).
+    # Each build is guarded so older source trees (e.g. pinned v0.83.0)
+    # still build.
+    if [ -f packages/telemetry/tsconfig.build.json ]; then
+      tsgo -p packages/telemetry/tsconfig.build.json
+    fi
+    if [ -f packages/protocol/tsconfig.build.json ]; then
+      tsgo -p packages/protocol/tsconfig.build.json
+    fi
+    if [ -f packages/client/tsconfig.build.json ]; then
+      tsgo -p packages/client/tsconfig.build.json
+    fi
     tsgo -p packages/ai/tsconfig.build.json
     mkdir -p packages/ai/dist/providers/data
     cp -r packages/ai/src/providers/data/. packages/ai/dist/providers/data/
@@ -82,8 +96,12 @@ buildNpmPackage (finalAttrs: {
     # travels along with the packages/ai copy.
     for ws in @earendil-works/pi-ai:packages/ai \
               @earendil-works/pi-tui:packages/tui \
-              @earendil-works/pi-agent-core:packages/agent; do
+              @earendil-works/pi-agent-core:packages/agent \
+              @earendil-works/pi-telemetry:packages/telemetry \
+              @earendil-works/pi-protocol:packages/protocol \
+              @earendil-works/pi-client:packages/client; do
       IFS=: read -r pkg src <<< "$ws"
+      [ -d "$src" ] || continue
       if [ -L "$nm/$pkg" ]; then
         rm "$nm/$pkg"
         cp -r "$src" "$nm/$pkg"
