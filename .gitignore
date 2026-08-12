@@ -1,1 +1,7 @@
 .sisyphus/
+.pi/
+.pi-subagents/
+
+# nix build outputs
+result
+result-*

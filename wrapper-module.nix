@@ -7,14 +7,19 @@ in
 
   options.pi = {
     codingAgentDir = lib.mkOption {
-      type = lib.types.str;
-      default = "~/.pi/agent";
+      type = lib.types.nullOr lib.types.str;
+      default = null;
       description = ''
         Directory for Pi mutable state (settings, auth, sessions,
         extensions, skills, prompts, themes).
 
-        - "~/.pi/agent" for global, cross-project state
-        - "./.pi" for per-project, isolated state
+        - `null` (default): {env}`PI_CODING_AGENT_DIR` is not set; both Pi
+          and its extensions fall back to `$HOME/.pi/agent`. Recommended.
+        - `"/abs/path"`: global state at an absolute path.
+
+        Never use `~` values: environment variables are never tilde-expanded,
+        and extensions resolve non-absolute values against the cwd, producing
+        literal `<cwd>/~/.pi/agent` directories.
       '';
     };
 
@@ -25,6 +30,7 @@ in
         Override the session storage directory.
         Defaults to `{var}`PI_CODING_AGENT_DIR`/sessions`.
         Sets {env}`PI_CODING_AGENT_SESSION_DIR`.
+        Use an absolute path; `~` is never expanded in environment variables.
       '';
     };
 
@@ -56,51 +62,6 @@ in
       '';
     };
 
-    skills = lib.mkOption {
-      type = lib.types.listOf lib.types.path;
-      default = [ ];
-      description = ''
-        Paths to skills directories.
-        Sets {env}`PI_SKILLS_PATHS` (colon-separated).
-      '';
-    };
-
-    extensions = lib.mkOption {
-      type = lib.types.listOf lib.types.path;
-      default = [ ];
-      description = ''
-        Paths to extensions directories.
-        Sets {env}`PI_EXTENSIONS_PATHS` (colon-separated).
-      '';
-    };
-
-    themes = lib.mkOption {
-      type = lib.types.listOf lib.types.path;
-      default = [ ];
-      description = ''
-        Paths to themes directories.
-        Sets {env}`PI_THEMES_PATHS` (colon-separated).
-      '';
-    };
-
-    promptTemplates = lib.mkOption {
-      type = lib.types.listOf lib.types.path;
-      default = [ ];
-      description = ''
-        Paths to prompt template directories.
-        Sets {env}`PI_PROMPT_TEMPLATES_PATHS` (colon-separated).
-      '';
-    };
-
-    models = lib.mkOption {
-      type = lib.types.nullOr lib.types.path;
-      default = null;
-      description = ''
-        Path to a custom {file}`models.json` file.
-        Sets {env}`PI_MODELS_PATH`.
-      '';
-    };
-
     extraFlags = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
@@ -124,6 +85,8 @@ in
 
     env = {
       PI_PACKAGE_DIR = "${config.package}/lib/node_modules/pi-monorepo";
+    }
+    // lib.optionalAttrs (cfg.codingAgentDir != null) {
       PI_CODING_AGENT_DIR = cfg.codingAgentDir;
     }
     // lib.optionalAttrs (cfg.sessionDir != null) {
@@ -134,21 +97,6 @@ in
     }
     // lib.optionalAttrs cfg.skipVersionCheck {
       PI_SKIP_VERSION_CHECK = "1";
-    }
-    // lib.optionalAttrs (cfg.models != null) {
-      PI_MODELS_PATH = toString cfg.models;
-    }
-    // lib.optionalAttrs (cfg.skills != [ ]) {
-      PI_SKILLS_PATHS = lib.concatStringsSep ":" (map toString cfg.skills);
-    }
-    // lib.optionalAttrs (cfg.extensions != [ ]) {
-      PI_EXTENSIONS_PATHS = lib.concatStringsSep ":" (map toString cfg.extensions);
-    }
-    // lib.optionalAttrs (cfg.themes != [ ]) {
-      PI_THEMES_PATHS = lib.concatStringsSep ":" (map toString cfg.themes);
-    }
-    // lib.optionalAttrs (cfg.promptTemplates != [ ]) {
-      PI_PROMPT_TEMPLATES_PATHS = lib.concatStringsSep ":" (map toString cfg.promptTemplates);
     };
 
     flags = lib.listToAttrs (

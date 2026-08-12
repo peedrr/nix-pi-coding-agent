@@ -19,11 +19,11 @@ The wrapper separates immutable Nix store assets from mutable user state:
 | Variable | What it points to | Managed by |
 |----------|-------------------|------------|
 | `PI_PACKAGE_DIR` | Read-only themes, docs, templates in the Nix store | Nix |
-| `PI_CODING_AGENT_DIR` | Your settings, auth, sessions, extensions | You |
+| `PI_CODING_AGENT_DIR` | Your settings, auth, sessions, extensions | You (unset by default: Pi and its extensions fall back to `$HOME/.pi/agent`) |
 
 This means reproducible builds without sacrificing user control. Pi gets the correct bundled assets from the exact version it was tested with, while your config lives wherever you want — `~/.pi/agent` globally or `./.pi` per-project.
 
-The wrapper uses nix-wrapper-modules' binary backend for fast startup (~4ms overhead) and provides every configuration option Pi supports as Nix options.
+The wrapper uses nix-wrapper-modules' binary backend for fast startup (~4ms overhead). Note that because the binary backend embeds environment values as literals (no shell runs at exec time), path options must be absolute or explicitly cwd-relative like `"./.pi"` — `~` is never expanded.
 
 ## How to use it
 
@@ -73,10 +73,11 @@ nix run github:peedrr/nix-pi-coding-agent
 { inputs, pkgs, ... }: {
   imports = [ inputs.pi.nixosModules.pi ];
 
+  # The module enables itself by default; shown here for clarity.
   wrappers.pi = {
     enable = true;
     package = inputs.pi.packages.x86_64-linux.pi;
-    codingAgentDir = "~/.pi/agent";
+    # codingAgentDir defaults to null -> Pi uses "$HOME/.pi/agent".
     extraPackages = [ pkgs.terraform ];
     extraFlags = [ "--verbose" ];
   };
@@ -87,17 +88,16 @@ nix run github:peedrr/nix-pi-coding-agent
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `codingAgentDir` | string | `"~/.pi/agent"` | Mutable state directory |
-| `sessionDir` | null or string | `null` | Override session directory |
+| `codingAgentDir` | null or string | `null` | Mutable state directory. `null` = unset = `$HOME/.pi/agent`. Never use `~` values |
+| `sessionDir` | null or string | `null` | Override session directory (absolute path) |
 | `extraPackages` | list of packages | `[]` | Extra tools on PATH |
 | `offline` | bool | `false` | Disable network at startup |
 | `skipVersionCheck` | bool | `false` | Skip update checks |
-| `skills` | list of paths | `[]` | Skills directories |
-| `extensions` | list of paths | `[]` | Extension directories |
-| `themes` | list of paths | `[]` | Theme directories |
-| `promptTemplates` | list of paths | `[]` | Prompt template directories |
-| `models` | null or path | `null` | Custom models.json |
 | `extraFlags` | list of strings | `[]` | CLI args. `--flag` for booleans, `--flag=val` for values |
+
+Extensions, skills, themes, and prompt templates are intentionally **not**
+wrapper options. Manage them through Pi's own mechanisms — `settings.json`
+(`packages` with `npm:`/`git:` sources) and project-level `.pi/settings.json`.
 
 Default tools on PATH: `git`, `ripgrep` (`rg`), `fd`, `tar`, `unzip`.
 
