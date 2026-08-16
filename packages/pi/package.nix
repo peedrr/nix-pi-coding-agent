@@ -125,4 +125,3 @@ buildNpmPackage (finalAttrs: {
     mainProgram = "pi";
   };
 })
-  });
