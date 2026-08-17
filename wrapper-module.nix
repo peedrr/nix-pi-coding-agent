@@ -120,6 +120,9 @@ in
       pkgs.fd
       pkgs.gnutar
       pkgs.unzip
+      # npm/node: `pi install npm:...` and startup auto-install of missing
+      # packages shell out to npm; fails on minimal hosts without node.
+      pkgs.nodejs
     ] ++ cfg.extraPackages;
   };
 }
