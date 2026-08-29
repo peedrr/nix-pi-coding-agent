@@ -8,16 +8,16 @@
 
 buildNpmPackage (finalAttrs: {
   pname = "pi-coding-agent";
-  version = "0.84.3";
+  version = "0.84.4";
 
   src = fetchFromGitHub {
     owner = "earendil-works";
     repo = "pi";
     tag = "v${finalAttrs.version}";
-    hash = "sha256-fC9pKgP2qD61ae5d7iOqP8anl88J1N1Bq8X8+aAjA2A=";
+    hash = "sha256-7z8OXao1PzmBEepDkIqVqyfQBPHulBlKcGymDYsnMvc=";
   };
 
-  npmDepsHash = "sha256-HbyVuaW0XqqgwCszmBcdlsbBrCJxUA1/DvLmIhTgqSE=";
+  npmDepsHash = "sha256-/xBp9Tn3jbPMSzrBVzH0Fb5uBNiLC8JlT/q09Zf08lM=";
   npmDepsFetcherVersion = 2;
 
   npmWorkspace = "packages/coding-agent";
@@ -26,7 +26,7 @@ buildNpmPackage (finalAttrs: {
   npmRebuildFlags = [ "--ignore-scripts" ];
 
   postPatch = ''
-    cp ${./package-lock.v0.84.3.json} package-lock.json
+    cp ${./package-lock.v0.84.4.json} package-lock.json
   '';
 
   nativeBuildInputs = [
@@ -42,7 +42,7 @@ buildNpmPackage (finalAttrs: {
   # real) and in dist/providers/data/ at runtime.
   piAiData = fetchurl {
     url = "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-${finalAttrs.version}.tgz";
-    hash = "sha256-nECvL0OVD46U57vNDBs1SPAAly2gDE+5wNBSnU19VDE=";
+    hash = "sha256-39PJKc7lpzhxmaCiTfwb4glvHqj1n/uChRmKDtAev5M=";
   };
 
   preBuild = ''
