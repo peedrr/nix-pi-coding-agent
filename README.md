@@ -12,6 +12,11 @@ A Nix flake that wraps the [Pi](https://pi.dev) coding agent with full configura
 - **`wrappers.piModule`** — reusable module supporting `.wrap`, `.apply`, `.eval`
 - **`nixosModules.pi`** — NixOS module for declarative system-wide config
 
+The package is built from the published `@earendil-works/pi-coding-agent` npm
+ tarball (prebuilt `dist/` bundle), with the dependency tree materialised by
+ `npm ci` so that extensions such as `pi-subagents` can resolve host packages
+ from the installation root.
+
 ## Why it works well
 
 The wrapper separates immutable Nix store assets from mutable user state:

@@ -84,7 +84,7 @@ in
     ];
 
     env = {
-      PI_PACKAGE_DIR = "${config.package}/lib/node_modules/pi-monorepo";
+      PI_PACKAGE_DIR = "${config.package}/lib/node_modules/pi-host/node_modules/@earendil-works/pi-coding-agent";
     }
     // lib.optionalAttrs (cfg.codingAgentDir != null) {
       PI_CODING_AGENT_DIR = cfg.codingAgentDir;

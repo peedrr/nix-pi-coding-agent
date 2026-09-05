@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-# update-pi.sh — Check for new upstream Pi releases and update packages/pi/package.nix
+# update-pi.sh — Check for new published @earendil-works/pi-coding-agent releases
+# and update packages/pi/package.nix for the tarball-based npm build.
 #
 # Usage: ./.github/scripts/update-pi.sh
 #
 # This script can be run both in CI and locally. It:
 #   1. Reads the current version from packages/pi/package.nix
-#   2. Queries the highest semver tag from earendil-works/pi via git ls-remote
+#   2. Queries the latest version from the npm registry dist-tags
 #   3. Skips if no newer version is available
-#   4. Prefetches the source archive and computes the source hash
-#   5. Extracts package-lock.json from the prefetched source
-#   6. Updates version, src hash, lockfile ref in package.nix
-#   7. Computes npmDepsHash via fake-hash build prefetch
-#   8. Vendors the new package-lock.json and cleans up old ones
-#   9. Exports metadata for GitHub Actions workflow consumption
+#   4. Updates the synthetic-root package.json with the new version
+#   5. Regenerates the vendored package-lock.json
+#   6. Fixes any missing integrity hashes in the generated lockfile
+#   7. Updates version and lockfile reference in package.nix
+#   8. Computes npmDepsHash via fake-hash build prefetch
+#   9. Cleans up old vendored lockfiles
+#  10. Exports metadata for GitHub Actions workflow consumption
 
 set -euo pipefail
 
@@ -20,47 +22,47 @@ set -euo pipefail
 # Configuration
 # ---------------------------------------------------------------------------
 
-UPSTREAM_OWNER="earendil-works"
-UPSTREAM_REPO="pi"
+NPM_SCOPE="@earendil-works"
+PI_PACKAGE="pi-coding-agent"
 PI_NIX="packages/pi/package.nix"
+PI_JSON="packages/pi/package.json"
 LOCKFILE_DIR="packages/pi"
 
+# Packages that must sit beside pi-coding-agent in the synthetic root so that
+# pi-subagents background children can resolve them from the host package root.
+SYNTHETIC_DEPS=(
+  "pi-coding-agent"
+  "pi-client"
+  "pi-protocol"
+  "pi-server"
+)
+
 # ---------------------------------------------------------------------------
-# Step 1: Detect current version from pi.nix
+# Step 1: Detect current version from package.nix
 # ---------------------------------------------------------------------------
 
 current_version="$(grep -oP 'version = "\K[^"]+' "${PI_NIX}")"
 echo "Current version in ${PI_NIX}: ${current_version}"
 
 # ---------------------------------------------------------------------------
-# Step 2: Detect latest version from upstream (or use override)
+# Step 2: Detect latest version from npm registry (or use override)
 # ---------------------------------------------------------------------------
 
 if [[ -n "${VERSION_OVERRIDE:-}" ]]; then
   latest_version="${VERSION_OVERRIDE#v}"
   echo "Using overridden version: ${latest_version}"
 else
-  # Query the highest semver tag from upstream via git ls-remote.
-  # We intentionally avoid GitHub's /releases/latest API because it
-  # returns the most recently *published* release (by creation date,
-  # not semver), which can be a backport hotfix on an older release
-  # branch — e.g. v0.74.2 published after v0.75.4.
-  echo "Querying upstream tags for highest version..."
-  latest_tag="$(git ls-remote --tags --refs "https://github.com/${UPSTREAM_OWNER}/${UPSTREAM_REPO}.git" 'v*' \
-    | awk -F/ '{print $3}' \
-    | grep -E '^v[0-9]+(\.[0-9]+)*$' \
-    | sort -V \
-    | tail -n1)"
+  echo "Querying npm registry for latest ${NPM_SCOPE}/${PI_PACKAGE} version..."
+  latest_version="$(curl -fsSL "https://registry.npmjs.org/${NPM_SCOPE}/${PI_PACKAGE}" \
+    | jq -r '.["dist-tags"].latest')"
 
-  if [[ -z "${latest_tag}" ]]; then
-    echo "ERROR: Could not determine latest upstream version." >&2
+  if [[ -z "${latest_version}" || "${latest_version}" == "null" ]]; then
+    echo "ERROR: Could not determine latest npm version." >&2
     exit 1
   fi
-
-  latest_version="${latest_tag#v}"
 fi
 
-echo "Latest upstream version: ${latest_version}"
+echo "Latest npm version: ${latest_version}"
 
 # ---------------------------------------------------------------------------
 # Step 3: Skip if versions are equal or candidate is older
@@ -72,7 +74,6 @@ if [[ "${current_version}" == "${latest_version}" ]]; then
   exit 0
 fi
 
-# Ensure the candidate is strictly newer than the current version.
 newest="$(printf '%s\n%s\n' "${current_version}" "${latest_version}" | sort -V | tail -n1)"
 if [[ "${newest}" != "${latest_version}" ]]; then
   echo "Candidate version ${latest_version} is older than current ${current_version}. Skipping."
@@ -80,76 +81,83 @@ if [[ "${newest}" != "${latest_version}" ]]; then
   exit 0
 fi
 
-# ---------------------------------------------------------------------------
-# Step 4: Prefetch source archive and compute source hash
-# ---------------------------------------------------------------------------
-
 VERSION="${latest_version}"
-ARCHIVE_URL="https://github.com/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/archive/refs/tags/v${VERSION}.tar.gz"
-
-echo "Prefetching source archive: ${ARCHIVE_URL}"
-prefetch_json="$(nix store prefetch-file --json --unpack "${ARCHIVE_URL}")"
-src_hash="$(jq -r '.hash' <<< "${prefetch_json}")"
-src_path="$(jq -r '.storePath' <<< "${prefetch_json}")"
-
-echo "Source hash: ${src_hash}"
 
 # ---------------------------------------------------------------------------
-# Step 5: Extract package-lock.json from prefetched source
+# Step 4: Update synthetic-root package.json
 # ---------------------------------------------------------------------------
 
-lockfile="${src_path}/package-lock.json"
-if [[ ! -f "${lockfile}" ]]; then
-  echo "ERROR: package-lock.json not found in prefetched source at ${lockfile}" >&2
-  exit 1
+echo "Updating ${PI_JSON} dependencies to ${VERSION}..."
+
+jq_args=()
+for dep in "${SYNTHETIC_DEPS[@]}"; do
+  jq_args+=(--arg "dep" "${dep}" --arg "ver" "${VERSION}" '.dependencies["'"${NPM_SCOPE}/${dep}"'"] = $ver')
+done
+# Chain the updates via successive jq runs is awkward; build one filter.
+# Simpler: use a single jq program that sets each dependency.
+jq_filter="."
+for dep in "${SYNTHETIC_DEPS[@]}"; do
+  jq_filter="${jq_filter} | .dependencies[\"${NPM_SCOPE}/${dep}\"] = \"${VERSION}\""
+done
+jq_filter="${jq_filter} | .version = \"${VERSION}\""
+
+jq "${jq_filter}" "${PI_JSON}" > "${PI_JSON}.tmp"
+mv "${PI_JSON}.tmp" "${PI_JSON}"
+
+# ---------------------------------------------------------------------------
+# Step 5: Regenerate the vendored package-lock.json
+# ---------------------------------------------------------------------------
+
+tmpdir="$(mktemp -d)"
+cp "${PI_JSON}" "${tmpdir}/package.json"
+(
+  cd "${tmpdir}"
+  npm install --package-lock-only --ignore-scripts
+)
+lockfile="${tmpdir}/package-lock.json"
+
+# ---------------------------------------------------------------------------
+# Step 5b: Fill in any missing integrity hashes
+# ---------------------------------------------------------------------------
+# npm install --package-lock-only can omit integrity for packages that are
+# pinned by an upstream npm-shrinkwrap.json. prefetch-npm-deps requires
+# integrity for every non-git dependency, so compute sha512 for each missing
+# resolved tarball.
+
+missing_entries="$(jq -r '.packages | to_entries[] | select(.value.resolved and (.value.integrity | not)) | [.key, .value.resolved] | @tsv' "${lockfile}")"
+
+if [[ -n "${missing_entries}" ]]; then
+  echo "Filling missing integrity hashes..."
+  while IFS=$'\t' read -r key url; do
+    [[ -z "${key}" ]] && continue
+    if [[ ! "${url}" =~ ^https?:// ]]; then
+      echo "ERROR: Cannot compute integrity for non-HTTP resolved URL: ${url}" >&2
+      exit 1
+    fi
+    integrity="$(nix store prefetch-file --json --hash-type sha512 "${url}" | jq -r '.hash')"
+    jq --arg key "${key}" --arg integrity "${integrity}" '.packages[$key].integrity = $integrity' "${lockfile}" > "${lockfile}.tmp"
+    mv "${lockfile}.tmp" "${lockfile}"
+  done <<< "${missing_entries}"
 fi
 
 cp "${lockfile}" "${LOCKFILE_DIR}/package-lock.v${VERSION}.json"
+rm -rf "${tmpdir}"
 echo "Vendored package-lock.json as ${LOCKFILE_DIR}/package-lock.v${VERSION}.json"
 
 # ---------------------------------------------------------------------------
-# Step 5b: Prefetch the @earendil-works/pi-ai npm tarball hash
-# ---------------------------------------------------------------------------
-# pi-ai's model data (src/providers/data/*.json) is gitignored upstream and
-# generated by `generate-models` (network). The Nix package sources the
-# prebuilt data from the published npm tarball instead, so each bump must
-# refresh the piAiData fetchurl hash.
-
-PI_AI_TARBALL_URL="https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-${VERSION}.tgz"
-echo "Prefetching pi-ai npm tarball: ${PI_AI_TARBALL_URL}"
-pi_ai_hash="$(nix store prefetch-file --json "${PI_AI_TARBALL_URL}" | jq -r '.hash')"
-
-if [[ -z "${pi_ai_hash}" ]]; then
-  echo "ERROR: Could not prefetch pi-ai npm tarball hash." >&2
-  exit 1
-fi
-
-echo "pi-ai npm tarball hash: ${pi_ai_hash}"
-
-# ---------------------------------------------------------------------------
-# Step 6: Update version, src hash, piAiData hash, and lockfile ref in package.nix
+# Step 6: Update version and lockfile reference in package.nix
 # ---------------------------------------------------------------------------
 
 sed -i 's/version = "[^"]*";/version = "'"${VERSION}"'";/' "${PI_NIX}"
-# The src (fetchFromGitHub) hash is the `hash =` line immediately after the
-# `tag = "v..."` line. Match by context so we don't also clobber piAiData.hash.
-sed -i '/tag = "v/{n;s@hash = "sha256-[^"]*";@hash = "'"${src_hash}"'";@}' "${PI_NIX}"
-# The piAiData (fetchurl) hash is the `hash =` line immediately after the
-# registry.npmjs.org/@earendil-works/pi-ai url line.
-sed -i '/registry.npmjs.org\/\@earendil-works\/pi-ai/{n;s@hash = "sha256-[^"]*";@hash = "'"${pi_ai_hash}"'";@}' "${PI_NIX}"
 sed -i 's@package-lock\.v[^ ]*\.json@package-lock.v'"${VERSION}"'.json@g' "${PI_NIX}"
-git add "${LOCKFILE_DIR}/package-lock.v${VERSION}.json" "${PI_NIX}"
+git add "${PI_JSON}" "${LOCKFILE_DIR}/package-lock.v${VERSION}.json" "${PI_NIX}"
 
 # ---------------------------------------------------------------------------
 # Step 7: Compute npmDepsHash via fake-hash build prefetch
 # ---------------------------------------------------------------------------
-# prefetch-npm-deps does not account for npmWorkspace, npmRebuildFlags,
-# or other buildNpmPackage options that affect the deps hash. Instead,
-# set a fake hash, attempt a build, and extract the correct hash from
-# the error output.
 
 FAKE_HASH="sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-sed -i 's@npmDepsHash = "sha256-[^"]*";@npmDepsHash = "'"${FAKE_HASH}"'";@' "${PI_NIX}"
+sed -i 's@npmDepsHash = "sha256-[^"]*";@npmDepsHash = "'"${FAKE_HASH}"'";/' "${PI_NIX}"
 
 npm_deps_hash="$(nix build .#pi --no-link 2>&1 \
   | grep -oP 'got:\s+\Ksha256-[A-Za-z0-9+/=]+' \
@@ -161,7 +169,7 @@ if [[ -z "${npm_deps_hash}" ]]; then
 fi
 
 echo "npmDepsHash: ${npm_deps_hash}"
-sed -i 's@npmDepsHash = "sha256-[^"]*";@npmDepsHash = "'"${npm_deps_hash}"'";@' "${PI_NIX}"
+sed -i 's@npmDepsHash = "sha256-[^"]*";@npmDepsHash = "'"${npm_deps_hash}"'";/' "${PI_NIX}"
 
 echo "Updated ${PI_NIX}"
 
@@ -183,8 +191,6 @@ done
 if [[ -n "${GITHUB_ENV:-}" ]]; then
   echo "UPDATE_REQUIRED=true" >> "${GITHUB_ENV}"
   echo "NEW_VERSION=${VERSION}" >> "${GITHUB_ENV}"
-  echo "SRC_HASH=${src_hash}" >> "${GITHUB_ENV}"
-  echo "PI_AI_HASH=${pi_ai_hash}" >> "${GITHUB_ENV}"
   echo "NPM_DEPS_HASH=${npm_deps_hash}" >> "${GITHUB_ENV}"
 fi
 
