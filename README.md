@@ -10,7 +10,7 @@ A Nix flake that wraps the [Pi](https://pi.dev) coding agent with full configura
 - **`packages.<system>.default`** — Pi with global config at `~/.pi/agent`
 - **`packages.<system>.pi`** — the unwrapped package for custom wrapping
 - **`wrappers.piModule`** — reusable module supporting `.wrap`, `.apply`, `.eval`
-- **`nixosModules.pi`** — NixOS module for declarative system-wide config
+- **`nixosModules.pi`**, **`homeModules.pi`**, **`hjemModules.pi`** — class-agnostic install modules for NixOS, nix-darwin (via `nixosModules.pi`), home-manager, and hjem
 
 The package is built from the published `@earendil-works/pi-coding-agent` npm
  tarball (prebuilt `dist/` bundle), with the dependency tree materialised by
@@ -65,29 +65,36 @@ nix run github:peedrr/nix-pi-coding-agent
       packages.x86_64-linux.my-pi = pi.wrappers.piModule.wrap {
         inherit pkgs;
         package = pi.packages.x86_64-linux.pi;
-        pi.codingAgentDir = "./.pi";
-        pi.extraPackages = [ pkgs.terraform pkgs.awscli2 ];
+        codingAgentDir = "./.pi";
+        runtimePkgs = [ pkgs.terraform pkgs.awscli2 ];
       };
     };
 }
 ```
 
-### NixOS module
+### NixOS / nix-darwin / home-manager / hjem module
+
+The same install module works for all of them. NixOS and nix-darwin users import
+`inputs.pi.nixosModules.pi`; home-manager users import
+`inputs.pi.homeModules.pi`; hjem users import `inputs.pi.hjemModules.pi`.
+The flake already enables the wrapper and sets a system-aware default package,
+so both `enable` and `package` may be omitted.
 
 ```nix
 { inputs, pkgs, ... }: {
   imports = [ inputs.pi.nixosModules.pi ];
 
-  # The module enables itself by default; shown here for clarity.
   wrappers.pi = {
-    enable = true;
-    package = inputs.pi.packages.x86_64-linux.pi;
-    # codingAgentDir defaults to null -> Pi uses "$HOME/.pi/agent".
-    extraPackages = [ pkgs.terraform ];
-    extraFlags = [ "--verbose" ];
+    # enable and package are mkDefault'ed by the flake.
+    runtimePkgs = [ pkgs.terraform ];
+    flags."--verbose" = true;
+    skipVersionCheck = true;
   };
 }
 ```
+
+If you do set `package`, use a system-aware reference:
+`inputs.pi.packages.${pkgs.system}.pi`.
 
 ### Available options
 
@@ -95,16 +102,29 @@ nix run github:peedrr/nix-pi-coding-agent
 |--------|------|---------|-------------|
 | `codingAgentDir` | null or string | `null` | Mutable state directory. `null` = unset = `$HOME/.pi/agent`. Never use `~` values |
 | `sessionDir` | null or string | `null` | Override session directory (absolute path) |
-| `extraPackages` | list of packages | `[]` | Extra tools on PATH |
 | `offline` | bool | `false` | Disable network at startup |
 | `skipVersionCheck` | bool | `false` | Skip update checks |
-| `extraFlags` | list of strings | `[]` | CLI args. `--flag` for booleans, `--flag=val` for values |
+
+For wrapper-script behaviour, use the library's native core options:
+
+- `runtimePkgs` — extra packages on Pi's PATH (e.g. `[ pkgs.terraform pkgs.awscli2 ]`).
+- `flags` — CLI flags as an attribute set. `flags."--verbose" = true` passes the flag; `flags."--model" = "gpt-4"` passes `--model gpt-4`. See the upstream `flags` option docs for lists, separators, and ordering.
+- `addFlag` / `appendFlag` — prepend or append raw arguments when `flags` is not enough.
 
 Extensions, skills, themes, and prompt templates are intentionally **not**
 wrapper options. Manage them through Pi's own mechanisms — `settings.json`
 (`packages` with `npm:`/`git:` sources) and project-level `.pi/settings.json`.
 
-Default tools on PATH: `git`, `ripgrep` (`rg`), `fd`, `tar`, `unzip`.
+Default tools on PATH: `git`, `ripgrep` (`rg`), `fd`, `tar`, `unzip`, `node`.
+
+## Breaking changes
+
+- The `pi.*` option group has been removed. Options that were previously
+  `wrappers.pi.pi.<name>` (or `pi.<name>` inside `.wrap`) are now top-level
+  under `wrappers.pi.<name>` (or top-level inside `.wrap`).
+  - `pi.skipVersionCheck = true` → `skipVersionCheck = true`
+  - `pi.extraPackages` → `runtimePkgs`
+  - `pi.extraFlags` → `flags` (attribute set, not a list)
 
 ## Supported platforms
 

@@ -35,7 +35,7 @@
           default = self.wrappers.piModule.wrap {
             inherit pkgs;
             package = piPkg;
-            # pi.codingAgentDir stays null: PI_CODING_AGENT_DIR is left unset so
+            # codingAgentDir stays null: PI_CODING_AGENT_DIR is left unset so
             # both Pi and its extensions fall back to "$HOME/.pi/agent" at runtime.
           };
         }
@@ -61,5 +61,11 @@
           config.wrappers.pi.package = lib.mkDefault self.packages.${pkgs.system}.pi;
         };
       nixosModules.default = self.nixosModules.pi;
+
+      homeModules.pi = self.nixosModules.pi;
+      homeModules.default = self.nixosModules.pi;
+
+      hjemModules.pi = self.nixosModules.pi;
+      hjemModules.default = self.nixosModules.pi;
     };
 }

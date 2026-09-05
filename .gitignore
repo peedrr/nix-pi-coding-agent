@@ -2,6 +2,10 @@
 .pi/
 .pi-subagents/
 
+# A literal tilde directory (e.g. from cwd-resolved ~/.pi paths) can contain
+# sockets that break flake tree copying. Ignore it if it ever appears.
+~/
+
 # nix build outputs
 result
 result-*
