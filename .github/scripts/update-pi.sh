@@ -149,7 +149,7 @@ echo "Vendored package-lock.json as ${LOCKFILE_DIR}/package-lock.v${VERSION}.jso
 # ---------------------------------------------------------------------------
 
 sed -i 's/version = "[^"]*";/version = "'"${VERSION}"'";/' "${PI_NIX}"
-sed -i 's@package-lock\.v[^ ]*\.json@package-lock.v'"${VERSION}"'.json@g' "${PI_NIX}"
+sed -i 's@package-lock\.v[0-9][^ ]*\.json@package-lock.v'"${VERSION}"'.json@g' "${PI_NIX}"
 git add "${PI_JSON}" "${LOCKFILE_DIR}/package-lock.v${VERSION}.json" "${PI_NIX}"
 
 # ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ git add "${PI_JSON}" "${LOCKFILE_DIR}/package-lock.v${VERSION}.json" "${PI_NIX}"
 # ---------------------------------------------------------------------------
 
 FAKE_HASH="sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-sed -i 's@npmDepsHash = "sha256-[^"]*";@npmDepsHash = "'"${FAKE_HASH}"'";/' "${PI_NIX}"
+sed -i 's@npmDepsHash = "sha256-[^"]*";@npmDepsHash = "'"${FAKE_HASH}"'";@' "${PI_NIX}"
 
 npm_deps_hash="$(nix build .#pi --no-link 2>&1 \
   | grep -oP 'got:\s+\Ksha256-[A-Za-z0-9+/=]+' \
@@ -169,7 +169,7 @@ if [[ -z "${npm_deps_hash}" ]]; then
 fi
 
 echo "npmDepsHash: ${npm_deps_hash}"
-sed -i 's@npmDepsHash = "sha256-[^"]*";@npmDepsHash = "'"${npm_deps_hash}"'";/' "${PI_NIX}"
+sed -i 's@npmDepsHash = "sha256-[^"]*";@npmDepsHash = "'"${npm_deps_hash}"'";@' "${PI_NIX}"
 
 echo "Updated ${PI_NIX}"
 
