@@ -17,6 +17,13 @@ buildNpmPackage (finalAttrs: {
 
   npmRebuildFlags = [ "--ignore-scripts" ];
 
+  # The synthetic root has no devDependencies, so pruning is a no-op.
+  # Skip it: the cache-based npm ci writes a hidden lockfile without
+  # integrity for the shrinkwrap-pinned nested deps, which makes
+  # `npm prune` try to reinstall them and crash inside arborist's
+  # rollback path (ERR_INVALID_ARG_TYPE in relative()).
+  dontNpmPrune = true;
+
   postPatch = ''
     cp ${./package-lock.v${finalAttrs.version}.json} package-lock.json
   '';
