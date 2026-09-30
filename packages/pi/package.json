@@ -1,11 +1,11 @@
 {
   "name": "pi-host",
-  "version": "0.87.1",
+  "version": "0.99.1",
   "private": true,
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.87.1",
-    "@earendil-works/pi-client": "0.87.1",
-    "@earendil-works/pi-protocol": "0.87.1",
-    "@earendil-works/pi-server": "0.87.1"
+    "@earendil-works/pi-coding-agent": "0.99.1",
+    "@earendil-works/pi-client": "0.99.1",
+    "@earendil-works/pi-protocol": "0.99.1",
+    "@earendil-works/pi-server": "0.99.1"
   }
 }
