@@ -4,7 +4,7 @@
 
 buildNpmPackage (finalAttrs: {
   pname = "pi-coding-agent";
-  version = "1.1.0";
+  version = "1.2.0";
 
   # Synthetic npm root: package.json declares the published pi-coding-agent
   # tarball plus the optional packages that pi-subagents background children
@@ -12,7 +12,7 @@ buildNpmPackage (finalAttrs: {
   # materialises the whole tree, honouring the upstream npm-shrinkwrap.json.
   src = ./.;
 
-  npmDepsHash = "sha256-VA12GAo8vCB8ioKZNh4ClCwAfe6FLPWA7DY/bhviw0A=";
+  npmDepsHash = "sha256-l4wEQKhF42+O1BFLRSOFNuwK6YtjvnSRr+TkfobnTX8=";
   npmDepsFetcherVersion = 2;
 
   npmRebuildFlags = [ "--ignore-scripts" ];
