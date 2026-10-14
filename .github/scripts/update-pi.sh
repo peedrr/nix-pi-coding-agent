@@ -87,17 +87,31 @@ VERSION="${latest_version}"
 # Step 4: Update synthetic-root package.json
 # ---------------------------------------------------------------------------
 
-echo "Updating ${PI_JSON} dependencies to ${VERSION}..."
+echo "Updating ${PI_JSON} dependencies..."
 
-jq_args=()
+# The synthetic deps do not all version in lockstep with pi-coding-agent
+# (e.g. pi-client/pi-server/pi-protocol can lag behind). Pin each package
+# to its own latest published version instead of forcing ${VERSION}.
+declare -A dep_versions=()
 for dep in "${SYNTHETIC_DEPS[@]}"; do
-  jq_args+=(--arg "dep" "${dep}" --arg "ver" "${VERSION}" '.dependencies["'"${NPM_SCOPE}/${dep}"'"] = $ver')
+  if [[ "${dep}" == "${PI_PACKAGE}" ]]; then
+    dep_versions["${dep}"]="${VERSION}"
+  else
+    dep_version="$(curl -fsSL "https://registry.npmjs.org/${NPM_SCOPE}/${dep}" \
+      | jq -r '.["dist-tags"].latest')"
+    if [[ -z "${dep_version}" || "${dep_version}" == "null" ]]; then
+      echo "ERROR: Could not determine latest npm version for ${NPM_SCOPE}/${dep}." >&2
+      exit 1
+    fi
+    dep_versions["${dep}"]="${dep_version}"
+  fi
+  echo "  ${NPM_SCOPE}/${dep}: ${dep_versions[${dep}]}"
 done
-# Chain the updates via successive jq runs is awkward; build one filter.
-# Simpler: use a single jq program that sets each dependency.
+
+# Build a single jq filter that sets each dependency to its own version.
 jq_filter="."
 for dep in "${SYNTHETIC_DEPS[@]}"; do
-  jq_filter="${jq_filter} | .dependencies[\"${NPM_SCOPE}/${dep}\"] = \"${VERSION}\""
+  jq_filter="${jq_filter} | .dependencies[\"${NPM_SCOPE}/${dep}\"] = \"${dep_versions[${dep}]}\""
 done
 jq_filter="${jq_filter} | .version = \"${VERSION}\""
 
